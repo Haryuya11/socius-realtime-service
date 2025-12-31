@@ -49,10 +49,8 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   envs: JAR_DIR
                   script: |
-                      # Check disk space
                       AVAILABLE=$(df "$JAR_DIR" | tail -1 | awk '{print $4}')
                       if [ "$AVAILABLE" -lt 512000 ]; then echo "❌ Disk full"; exit 1; fi
-                      # Check Java
                       if ! java -version 2>&1 | grep -q "17\."; then echo "❌ Java 17 required"; exit 1; fi
                       echo "✅ Server ready"
 
@@ -78,8 +76,7 @@ jobs:
               run: |
                   mkdir -p ./upload-artifacts
 
-                  # [QUAN TRỌNG] Tìm file *-all.jar trong thư mục build/libs ở root
-                  # Lệnh này sẽ tìm thấy 'soicus-realtime-service-all.jar' của bạn
+                  # Tìm file *-all.jar
                   KTOR_JAR=$(find build/libs -name '*-all.jar' -type f | head -1)
 
                   if [[ -z "$KTOR_JAR" ]]; then
@@ -89,8 +86,6 @@ jobs:
                   fi
 
                   echo "Found JAR: $KTOR_JAR"
-
-                  # Copy và ĐỔI TÊN thành socius-realtime-service.jar (sửa lỗi chính tả luôn)
                   cp "$KTOR_JAR" ./upload-artifacts/${{ env.JAR_NAME }}
 
             - uses: actions/upload-artifact@v4
@@ -130,38 +125,39 @@ jobs:
                   JAR_NAME: ${{ env.JAR_NAME }}
                   SERVICE_NAME: ${{ env.SERVICE_NAME }}
                   ENV_FILE: ${{ env.ENV_FILE }}
-                  VAL_KEY_VAULT: ${{ secrets.KEY_VAULT_ENDPOINT }}
-                  VAL_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-                  VAL_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
               with:
                   host: ${{ secrets.VM_HOST }}
                   username: ${{ secrets.VM_USER }}
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  envs: JAR_DIR,JAR_NAME,SERVICE_NAME,ENV_FILE,VAL_KEY_VAULT,VAL_CLIENT_ID,VAL_TENANT_ID
+                  envs: JAR_DIR,JAR_NAME,SERVICE_NAME,ENV_FILE
                   script: |
                       set -euo pipefail
-                      echo "🚀 Deploying..."
+                      echo "🚀 Deploying Ktor..."
 
-                      # 1. Backup file cũ
+                      # 1. Backup file JAR cũ
                       if [ -f "$JAR_DIR/$JAR_NAME" ]; then
                           sudo cp "$JAR_DIR/$JAR_NAME" "$JAR_DIR/$JAR_NAME.bak"
                       fi
 
-                      # 2. Di chuyển file JAR mới vào chỗ (đã được đổi tên đúng từ bước Build)
+                      # 2. Di chuyển file JAR mới vào
                       sudo mv /tmp/socius-deploy/${{ env.JAR_NAME }} "$JAR_DIR/"
+
+                      # Set quyền cho file JAR
                       sudo chown azureuser:azureuser "$JAR_DIR/$JAR_NAME"
                       sudo chmod 500 "$JAR_DIR/$JAR_NAME"
 
-                      # 3. Cập nhật file .env chung
-                      echo "KEY_VAULT_ENDPOINT=$VAL_KEY_VAULT" | sudo tee $ENV_FILE > /dev/null
-                      if [ ! -z "$VAL_CLIENT_ID" ]; then echo "AZURE_CLIENT_ID=$VAL_CLIENT_ID" | sudo tee -a $ENV_FILE > /dev/null; fi
-                      if [ ! -z "$VAL_TENANT_ID" ]; then echo "AZURE_TENANT_ID=$VAL_TENANT_ID" | sudo tee -a $ENV_FILE > /dev/null; fi
-                      sudo chmod 600 $ENV_FILE
-                      sudo chown azureuser:azureuser $ENV_FILE
+                      # [QUAN TRỌNG] Chỉ đảm bảo quyền đọc cho file .env (Không ghi đè nội dung)
+                      if [ -f "$ENV_FILE" ]; then
+                          sudo chown azureuser:azureuser "$ENV_FILE"
+                          sudo chmod 600 "$ENV_FILE"
+                      else
+                          echo "⚠️ Warning: $ENV_FILE not found on server!"
+                      fi
 
-                      # 4. Restart Service
+                      # 3. Restart Service
+                      echo "Restarting service..."
                       if ! sudo systemctl restart "$SERVICE_NAME"; then
-                           echo "❌ Failed. Rolling back..."
+                           echo "❌ Restart Failed. Rolling back..."
                            if [ -f "$JAR_DIR/$JAR_NAME.bak" ]; then
                               sudo mv "$JAR_DIR/$JAR_NAME.bak" "$JAR_DIR/$JAR_NAME"
                               sudo systemctl restart "$SERVICE_NAME"
