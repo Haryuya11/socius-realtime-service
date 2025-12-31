@@ -1,0 +1,174 @@
+name: Deploy Ktor Realtime Service
+on:
+    workflow_dispatch:
+        inputs:
+            environment:
+                description: "Target environment"
+                required: true
+                type: choice
+                options:
+                    - staging
+                    - production
+                default: staging
+            confirm:
+                description: 'Type "deploy" to confirm'
+                required: true
+
+env:
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
+
+    JAR_DIR: /opt/socius
+    ENV_FILE: /opt/socius/.env
+
+    JAR_NAME: socius-realtime-service.jar
+    SERVICE_NAME: socius-realtime.service
+
+jobs:
+    validate:
+        name: Validate Input
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check Confirmation
+              run: |
+                  if [[ "${{ inputs.confirm }}" != "deploy" ]]; then
+                    echo "❌ Deployment cancelled."
+                    exit 1
+                  fi
+
+    pre-check:
+        name: Check Server
+        runs-on: ubuntu-latest
+        needs: validate
+        steps:
+            - uses: appleboy/ssh-action@v1.2.0
+              env:
+                  JAR_DIR: ${{ env.JAR_DIR }}
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  envs: JAR_DIR
+                  script: |
+                      # Check disk space
+                      AVAILABLE=$(df "$JAR_DIR" | tail -1 | awk '{print $4}')
+                      if [ "$AVAILABLE" -lt 512000 ]; then echo "❌ Disk full"; exit 1; fi
+                      # Check Java
+                      if ! java -version 2>&1 | grep -q "17\."; then echo "❌ Java 17 required"; exit 1; fi
+                      echo "✅ Server ready"
+
+    build:
+        name: Build Ktor
+        runs-on: ubuntu-latest
+        needs: pre-check
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-java@v4
+              with:
+                  java-version: "17"
+                  distribution: "temurin"
+                  cache: "gradle"
+
+            - name: Build Shadow Jar
+              run: |
+                  chmod +x gradlew
+                  ./gradlew clean shadowJar -x test --parallel --build-cache
+
+            - name: Prepare JAR
+              run: |
+                  mkdir -p ./upload-artifacts
+
+                  # [QUAN TRỌNG] Tìm file *-all.jar trong thư mục build/libs ở root
+                  # Lệnh này sẽ tìm thấy 'soicus-realtime-service-all.jar' của bạn
+                  KTOR_JAR=$(find build/libs -name '*-all.jar' -type f | head -1)
+
+                  if [[ -z "$KTOR_JAR" ]]; then
+                    echo "❌ Fat JAR (*-all.jar) not found in build/libs"
+                    ls -R build/libs
+                    exit 1
+                  fi
+
+                  echo "Found JAR: $KTOR_JAR"
+
+                  # Copy và ĐỔI TÊN thành socius-realtime-service.jar (sửa lỗi chính tả luôn)
+                  cp "$KTOR_JAR" ./upload-artifacts/${{ env.JAR_NAME }}
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: app-jar
+                  path: ./upload-artifacts/*.jar
+                  retention-days: 1
+
+    deploy:
+        name: Deploy to Azure
+        runs-on: ubuntu-latest
+        needs: build
+        environment:
+            name: ${{ inputs.environment }}
+            url: https://socius.codes/ws/hub
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  name: app-jar
+                  path: ./artifacts
+
+            - name: SCP to Server
+              uses: appleboy/scp-action@v0.1.7
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  source: "artifacts/*.jar"
+                  target: "/tmp/socius-deploy"
+                  strip_components: 1
+                  overwrite: true
+
+            - name: SSH Execute Deploy
+              uses: appleboy/ssh-action@v1.2.0
+              env:
+                  JAR_DIR: ${{ env.JAR_DIR }}
+                  JAR_NAME: ${{ env.JAR_NAME }}
+                  SERVICE_NAME: ${{ env.SERVICE_NAME }}
+                  ENV_FILE: ${{ env.ENV_FILE }}
+                  VAL_KEY_VAULT: ${{ secrets.KEY_VAULT_ENDPOINT }}
+                  VAL_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+                  VAL_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: ${{ secrets.VM_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  envs: JAR_DIR,JAR_NAME,SERVICE_NAME,ENV_FILE,VAL_KEY_VAULT,VAL_CLIENT_ID,VAL_TENANT_ID
+                  script: |
+                      set -euo pipefail
+                      echo "🚀 Deploying..."
+
+                      # 1. Backup file cũ
+                      if [ -f "$JAR_DIR/$JAR_NAME" ]; then
+                          sudo cp "$JAR_DIR/$JAR_NAME" "$JAR_DIR/$JAR_NAME.bak"
+                      fi
+
+                      # 2. Di chuyển file JAR mới vào chỗ (đã được đổi tên đúng từ bước Build)
+                      sudo mv /tmp/socius-deploy/${{ env.JAR_NAME }} "$JAR_DIR/"
+                      sudo chown azureuser:azureuser "$JAR_DIR/$JAR_NAME"
+                      sudo chmod 500 "$JAR_DIR/$JAR_NAME"
+
+                      # 3. Cập nhật file .env chung
+                      echo "KEY_VAULT_ENDPOINT=$VAL_KEY_VAULT" | sudo tee $ENV_FILE > /dev/null
+                      if [ ! -z "$VAL_CLIENT_ID" ]; then echo "AZURE_CLIENT_ID=$VAL_CLIENT_ID" | sudo tee -a $ENV_FILE > /dev/null; fi
+                      if [ ! -z "$VAL_TENANT_ID" ]; then echo "AZURE_TENANT_ID=$VAL_TENANT_ID" | sudo tee -a $ENV_FILE > /dev/null; fi
+                      sudo chmod 600 $ENV_FILE
+                      sudo chown azureuser:azureuser $ENV_FILE
+
+                      # 4. Restart Service
+                      if ! sudo systemctl restart "$SERVICE_NAME"; then
+                           echo "❌ Failed. Rolling back..."
+                           if [ -f "$JAR_DIR/$JAR_NAME.bak" ]; then
+                              sudo mv "$JAR_DIR/$JAR_NAME.bak" "$JAR_DIR/$JAR_NAME"
+                              sudo systemctl restart "$SERVICE_NAME"
+                           fi
+                           sudo journalctl -u $SERVICE_NAME -n 50 --no-pager
+                           exit 1
+                      fi
+
+                      sudo rm -rf /tmp/socius-deploy
+                      echo "✅ Deployment SUCCESS!"
