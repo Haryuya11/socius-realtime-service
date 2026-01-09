@@ -12,11 +12,20 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.channels.consumeEach
 
+/**
+ * Sets up WebSocket routing for the application.
+ *
+ * This function defines a WebSocket endpoint at "/ws/hub" that
+ * authenticates clients using JWT and manages connections via
+ * the provided [ConnectionManager].
+ *
+ * @param connectionManager manages active WebSocket connections
+ */
 fun Route.appWebSocket(connectionManager: ConnectionManager) {
     /** Logger instance for logging WebSocket events. */
     val logger = logger()
 
-    authenticate("azure-jwt") {
+    authenticate("azure-jwt-ws") {
         webSocket("/ws/hub") {
             val principal = call.principal<JWTPrincipal>()
             // Extract client ID from JWT claim "oid"
