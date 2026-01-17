@@ -13,6 +13,7 @@ import com.uit.enums.RoutingType
 import com.uit.model.MessageEventPayload
 import com.uit.model.NotificationEventPayload
 import com.uit.model.RealtimeEvent
+import com.uit.model.SystemEventPayload
 import com.uit.model.TypingIndicatorPayload
 import com.uit.utils.logger
 import com.uit.websocket.ConnectionManager
@@ -76,19 +77,18 @@ class RabbitMQConsumer(
                                     val routingType = config.routingHandlers[envelope.routingKey]
                                     val messageBody = body.decodeToString()
                                     when (routingType) {
-                                        RoutingType.NOTIFICATION -> {
+                                        // All routing types use the same RealtimeEvent structure from Spring Core.
+                                        // NOTIFICATION: for notification-related events
+                                        // MESSAGE: for message-related events (NEW_MESSAGE, MESSAGE_UPDATED, etc.)
+                                        // CHAT: legacy routing type, kept for backward compatibility
+                                        RoutingType.NOTIFICATION,
+                                        RoutingType.MESSAGE,
+                                        RoutingType.CHAT,
+                                        -> {
                                             handleRealtimeEvent(messageBody)
                                         }
 
-                                        RoutingType.MESSAGE -> {
-                                            handleRealtimeEvent(messageBody)
-                                        }
-
-                                        RoutingType.CHAT -> {
-                                            handleRealtimeEvent(messageBody)
-                                        }
-
-                                        else -> {
+                                        null -> {
                                             logger.warn(
                                                 "Unknown routing type for key: ${envelope.routingKey}",
                                             )
@@ -204,6 +204,7 @@ class RabbitMQConsumer(
 
     /**
      * Handles SYSTEM domain events.
+     * System events can have various payload structures, so they are wrapped in SystemEventPayload.
      */
     private suspend fun handleSystemDomainEvent(
         event: RealtimeEvent,
@@ -216,7 +217,9 @@ class RabbitMQConsumer(
             }
 
         event.payload?.let { payload ->
-            connectionManager.sendToUsers(targetUserIds, eventType, payload)
+            // Wrap raw payload in SystemEventPayload for consistent handling on client side
+            val systemPayload = SystemEventPayload(data = payload)
+            connectionManager.sendToUsers(targetUserIds, eventType, systemPayload)
             logger.info("Sent system event to ${targetUserIds.size} users")
         }
     }

@@ -74,7 +74,7 @@ class ConnectionManager {
             val message = WebSocketMessage(type, data)
             val json = Json.encodeToString(message)
             clientIds.forEach { clientId ->
-                if (isConnected(clientId)) {
+                if (checkConnected(clientId)) {
                     sendRawMessage(clientId, json)
                 }
             }
@@ -90,6 +90,13 @@ class ConnectionManager {
     internal fun logMultiUserSerializationError(e: Exception) {
         logger.error("Error serializing message for multiple users", e)
     }
+
+    /** Internal check for connection status (for inline function access).
+     * @param clientId The unique identifier for the client.
+     * @return True if the client is connected, false otherwise.
+     */
+    @PublishedApi
+    internal fun checkConnected(clientId: String): Boolean = connections.containsKey(clientId)
 
     /**
      * Sends a raw JSON message to a specific user via WebSocket.
@@ -133,8 +140,7 @@ class ConnectionManager {
      * @param clientId The unique identifier for the client.
      * @return True if the client is connected, false otherwise.
      */
-    @PublishedApi
-    internal fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
+    fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
 
     /**
      * Checks if any of the given clients are currently connected.
