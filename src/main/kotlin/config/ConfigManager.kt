@@ -47,6 +47,7 @@ object ConfigManager {
                 "azure.client.id" to System.getenv("AZURE_CLIENT_ID"),
                 "rabbitmq.exchange.name" to System.getenv("RABBITMQ_EXCHANGE_NAME"),
                 "notification.routing.key" to System.getenv("NOTIFICATION_ROUTING_KEY"),
+                "message.routing.key" to System.getenv("MESSAGE_ROUTING_KEY"),
             )
 
         config.putAll(envVars)
@@ -78,6 +79,7 @@ object ConfigManager {
                     "AZURE-CLIENT-ID",
                     "RABBITMQ-EXCHANGE-NAME",
                     "NOTIFICATION-ROUTING-KEY",
+                    "MESSAGE-ROUTING-KEY",
                 )
 
             secretKeys.forEach { secretName ->
@@ -104,6 +106,13 @@ object ConfigManager {
      * @throws IllegalStateException if the key is not found.
      */
     fun getString(key: String): String = config[key] ?: throw IllegalStateException("Configuration key not found: $key")
+
+    /**
+     * Retrieves a configuration value as a String, or null if not found or empty.
+     * @param key The configuration key.
+     * @return The configuration value, or null if not found or empty.
+     */
+    fun getStringOrNull(key: String): String? = config[key]?.takeIf { it.isNotBlank() }
 
     /**
      * Retrieves a configuration value as an Int.

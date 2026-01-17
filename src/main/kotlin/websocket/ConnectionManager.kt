@@ -60,6 +60,38 @@ class ConnectionManager {
     }
 
     /**
+     * Sends a typed message to multiple users via WebSocket.
+     * @param clientIds The list of unique identifiers for the clients.
+     * @param type The type of event being sent.
+     * @param data The data payload of the message.
+     */
+    suspend inline fun <reified T> sendToUsers(
+        clientIds: List<String>,
+        type: EventTypes,
+        data: T,
+    ) {
+        try {
+            val message = WebSocketMessage(type, data)
+            val json = Json.encodeToString(message)
+            clientIds.forEach { clientId ->
+                if (isConnected(clientId)) {
+                    sendRawMessage(clientId, json)
+                }
+            }
+        } catch (e: Exception) {
+            logMultiUserSerializationError(e)
+        }
+    }
+
+    /** Logs serialization errors for multi-user sends.
+     * @param e The exception that occurred during serialization.
+     */
+    @PublishedApi
+    internal fun logMultiUserSerializationError(e: Exception) {
+        logger.error("Error serializing message for multiple users", e)
+    }
+
+    /**
      * Sends a raw JSON message to a specific user via WebSocket.
      * @param clientId The unique identifier for the client.
      * @param jsonContent The JSON string to send.
@@ -73,15 +105,15 @@ class ConnectionManager {
         if (session != null) {
             try {
                 session.send(Frame.Text(jsonContent))
-                logger.debug("Notification sent to $clientId")
+                logger.debug("Message sent to $clientId")
             } catch (_: ClosedSendChannelException) {
                 logger.warn("Failed to send to $clientId: Connection closed")
                 removeConnection(clientId)
             } catch (e: Exception) {
-                logger.error("Error sending notification to $clientId", e)
+                logger.error("Error sending message to $clientId", e)
             }
         } else {
-            logger.debug("Client $clientId not connected, skipping notification")
+            logger.debug("Client $clientId not connected, skipping message")
         }
     }
 
@@ -101,7 +133,15 @@ class ConnectionManager {
      * @param clientId The unique identifier for the client.
      * @return True if the client is connected, false otherwise.
      */
-    fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
+    @PublishedApi
+    internal fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
+
+    /**
+     * Checks if any of the given clients are currently connected.
+     * @param clientIds The list of unique identifiers for the clients.
+     * @return True if at least one client is connected, false otherwise.
+     */
+    fun isAnyConnected(clientIds: List<String>): Boolean = clientIds.any { isConnected(it) }
 
     /** Gets the number of active WebSocket connections.
      * @return The count of active connections.

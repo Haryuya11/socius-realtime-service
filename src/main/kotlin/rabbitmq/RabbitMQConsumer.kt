@@ -8,8 +8,12 @@ import com.rabbitmq.client.DefaultConsumer
 import com.rabbitmq.client.Envelope
 import com.uit.config.RabbitMQConfig
 import com.uit.enums.EventTypes
+import com.uit.enums.RealtimeDomain
 import com.uit.enums.RoutingType
-import com.uit.model.NotificationMessage
+import com.uit.model.MessageEventPayload
+import com.uit.model.NotificationEventPayload
+import com.uit.model.RealtimeEvent
+import com.uit.model.TypingIndicatorPayload
 import com.uit.utils.logger
 import com.uit.websocket.ConnectionManager
 import kotlinx.coroutines.CoroutineScope
@@ -18,10 +22,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
- * RabbitMQ consumer that listens for notification messages and forwards them to users via WebSocket.
- * @param connectionManager The WebSocket connection manager to send notifications.
+ * RabbitMQ consumer that listens for realtime events and forwards them to users via WebSocket.
+ * Supports both MESSAGE and NOTIFICATION domains from Spring Core.
+ * @param connectionManager The WebSocket connection manager to send events.
  * @param config The RabbitMQ configuration.
  */
 class RabbitMQConsumer(
@@ -71,11 +77,15 @@ class RabbitMQConsumer(
                                     val messageBody = body.decodeToString()
                                     when (routingType) {
                                         RoutingType.NOTIFICATION -> {
-                                            handleNotification(messageBody)
+                                            handleRealtimeEvent(messageBody)
+                                        }
+
+                                        RoutingType.MESSAGE -> {
+                                            handleRealtimeEvent(messageBody)
                                         }
 
                                         RoutingType.CHAT -> {
-                                            handleChatMessage(messageBody)
+                                            handleRealtimeEvent(messageBody)
                                         }
 
                                         else -> {
@@ -101,26 +111,114 @@ class RabbitMQConsumer(
     }
 
     /**
-     * Handles incoming notification messages.
+     * Handles incoming realtime events from Spring Core.
      * @param messageBody The message body as a JSON string.
      */
-    private suspend fun handleNotification(messageBody: String) {
-        val message = json.decodeFromString<NotificationMessage>(messageBody)
-        if (connectionManager.isConnected(message.receiverId)) {
-            connectionManager.sendToUser(
-                message.receiverId,
-                EventTypes.NOTIFICATION,
-                message,
-            )
+    private suspend fun handleRealtimeEvent(messageBody: String) {
+        try {
+            val event = json.decodeFromString<RealtimeEvent>(messageBody)
+            val targetUserIds = event.targetUserIds ?: return
+
+            if (!connectionManager.isAnyConnected(targetUserIds)) {
+                logger.debug("No target users connected, skipping event: ${event.eventType}")
+                return
+            }
+
+            when (event.domain) {
+                RealtimeDomain.MESSAGE -> handleMessageDomainEvent(event, targetUserIds)
+                RealtimeDomain.NOTIFICATION -> handleNotificationDomainEvent(event, targetUserIds)
+                RealtimeDomain.SYSTEM -> handleSystemDomainEvent(event, targetUserIds)
+                null -> logger.warn("Received event with null domain: ${event.eventId}")
+            }
+        } catch (e: Exception) {
+            logger.error("Error parsing realtime event: ${e.message}", e)
         }
     }
 
     /**
-     * Handles incoming chat messages.
-     * @param messageBody The message body as a JSON string.
+     * Handles MESSAGE domain events (NEW_MESSAGE, MESSAGE_UPDATED, MESSAGE_DELETED, TYPING_INDICATOR).
      */
-    private fun handleChatMessage(messageBody: String) {
-        // We will implement chat message handling later
+    private suspend fun handleMessageDomainEvent(
+        event: RealtimeEvent,
+        targetUserIds: List<String>,
+    ) {
+        val eventType =
+            event.getEventType() ?: run {
+                logger.warn("Unknown event type: ${event.eventType}")
+                return
+            }
+
+        when (eventType) {
+            EventTypes.NEW_MESSAGE,
+            EventTypes.MESSAGE_UPDATED,
+            EventTypes.MESSAGE_DELETED,
+            -> {
+                event.payload?.let { payload ->
+                    try {
+                        val messagePayload = json.decodeFromJsonElement<MessageEventPayload>(payload)
+                        connectionManager.sendToUsers(targetUserIds, eventType, messagePayload)
+                        logger.info("Sent ${event.eventType} to ${targetUserIds.size} users")
+                    } catch (e: Exception) {
+                        logger.error("Error parsing MessageEventPayload: ${e.message}", e)
+                    }
+                }
+            }
+
+            EventTypes.TYPING_INDICATOR -> {
+                event.payload?.let { payload ->
+                    try {
+                        val typingPayload = json.decodeFromJsonElement<TypingIndicatorPayload>(payload)
+                        connectionManager.sendToUsers(targetUserIds, eventType, typingPayload)
+                        logger.debug("Sent typing indicator to ${targetUserIds.size} users")
+                    } catch (e: Exception) {
+                        logger.error("Error parsing TypingIndicatorPayload: ${e.message}", e)
+                    }
+                }
+            }
+
+            else -> {
+                logger.warn("Unhandled MESSAGE domain event type: ${event.eventType}")
+            }
+        }
+    }
+
+    /**
+     * Handles NOTIFICATION domain events (NEW_NOTIFICATION).
+     */
+    private suspend fun handleNotificationDomainEvent(
+        event: RealtimeEvent,
+        targetUserIds: List<String>,
+    ) {
+        val eventType = event.getEventType() ?: EventTypes.NEW_NOTIFICATION
+
+        event.payload?.let { payload ->
+            try {
+                val notificationPayload = json.decodeFromJsonElement<NotificationEventPayload>(payload)
+                connectionManager.sendToUsers(targetUserIds, eventType, notificationPayload)
+                logger.info("Sent notification to ${targetUserIds.size} users")
+            } catch (e: Exception) {
+                logger.error("Error parsing NotificationEventPayload: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Handles SYSTEM domain events.
+     */
+    private suspend fun handleSystemDomainEvent(
+        event: RealtimeEvent,
+        targetUserIds: List<String>,
+    ) {
+        val eventType =
+            event.getEventType() ?: run {
+                logger.warn("Unknown system event type: ${event.eventType}")
+                return
+            }
+
+        event.payload?.let { payload ->
+            connectionManager.sendToUsers(targetUserIds, eventType, payload)
+            logger.info("Sent system event to ${targetUserIds.size} users")
+        }
     }
 
     /**
