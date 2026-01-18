@@ -19,6 +19,7 @@ spotless = "8.0.0"
 dokka = "2.1.0"
 ktlint = "1.8.0"
 shadow = "9.3.0"
+detekt = "1.23.8"
 
 [libraries]
 # Ktor Libraries
@@ -69,3 +70,4 @@ ktor = { id = "io.ktor.plugin", version.ref = "ktor" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

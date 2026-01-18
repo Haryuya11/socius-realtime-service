@@ -1,5 +1,9 @@
 package com.uit.config
 
+import com.azure.core.exception.AzureException
+import com.azure.core.exception.HttpResponseException
+import com.azure.core.exception.ResourceNotFoundException
+import com.azure.identity.CredentialUnavailableException
 import com.azure.identity.DefaultAzureCredentialBuilder
 import com.azure.security.keyvault.secrets.SecretClientBuilder
 import com.uit.utils.logger
@@ -47,6 +51,7 @@ object ConfigManager {
                 "azure.client.id" to System.getenv("AZURE_CLIENT_ID"),
                 "rabbitmq.exchange.name" to System.getenv("RABBITMQ_EXCHANGE_NAME"),
                 "notification.routing.key" to System.getenv("NOTIFICATION_ROUTING_KEY"),
+                "message.routing.key" to System.getenv("MESSAGE_ROUTING_KEY"),
             )
 
         config.putAll(envVars)
@@ -78,6 +83,7 @@ object ConfigManager {
                     "AZURE-CLIENT-ID",
                     "RABBITMQ-EXCHANGE-NAME",
                     "NOTIFICATION-ROUTING-KEY",
+                    "MESSAGE-ROUTING-KEY",
                 )
 
             secretKeys.forEach { secretName ->
@@ -86,13 +92,19 @@ object ConfigManager {
                     val configKey = secretName.lowercase().replace("-", ".")
                     config[configKey] = secretValue
                     logger.debug("Loaded secret: $secretName")
-                } catch (e: Exception) {
+                } catch (_: ResourceNotFoundException) {
+                    logger.debug("Secret not found in Key Vault: $secretName")
+                } catch (e: HttpResponseException) {
                     logger.warn("Failed to load secret $secretName: ${e.message}")
                 }
             }
 
             logger.info("Successfully loaded secrets from Azure Key Vault")
-        } catch (e: Exception) {
+        } catch (e: CredentialUnavailableException) {
+            logger.error("Azure credentials unavailable for Key Vault access: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            logger.error("Invalid Key Vault endpoint: ${e.message}")
+        } catch (e: AzureException) {
             logger.error("Failed to connect to Azure Key Vault", e)
         }
     }
@@ -104,6 +116,13 @@ object ConfigManager {
      * @throws IllegalStateException if the key is not found.
      */
     fun getString(key: String): String = config[key] ?: throw IllegalStateException("Configuration key not found: $key")
+
+    /**
+     * Retrieves a configuration value as a String, or null if not found or empty.
+     * @param key The configuration key.
+     * @return The configuration value, or null if not found or empty.
+     */
+    fun getStringOrNull(key: String): String? = config[key]?.takeIf { it.isNotBlank() }
 
     /**
      * Retrieves a configuration value as an Int.

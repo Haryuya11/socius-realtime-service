@@ -11,6 +11,8 @@ import com.uit.enums.RoutingType
  * @property password The password for RabbitMQ authentication.
  * @property vhost The virtual host to connect to in RabbitMQ.
  * @property ssl Indicates whether to use SSL for the connection.
+ * @property exchangeName The RabbitMQ exchange name.
+ * @property routingHandlers Map of routing keys to their types.
  */
 data class RabbitMQConfig(
     val host: String,
@@ -28,8 +30,20 @@ data class RabbitMQConfig(
          *
          * @return A [RabbitMQConfig] populated with RabbitMQ connection parameters.
          */
-        fun fromConfigManager(): RabbitMQConfig =
-            RabbitMQConfig(
+        fun fromConfigManager(): RabbitMQConfig {
+            val handlers = mutableMapOf<String, RoutingType>()
+
+            // Add notification routing key if configured
+            ConfigManager.getStringOrNull("notification.routing.key")?.let { key ->
+                handlers[key] = RoutingType.NOTIFICATION
+            }
+
+            // Add message routing key if configured
+            ConfigManager.getStringOrNull("message.routing.key")?.let { key ->
+                handlers[key] = RoutingType.MESSAGE
+            }
+
+            return RabbitMQConfig(
                 host = ConfigManager.getString("rabbitmq.host"),
                 port = ConfigManager.getInt("rabbitmq.port"),
                 username = ConfigManager.getString("rabbitmq.username"),
@@ -37,8 +51,8 @@ data class RabbitMQConfig(
                 vhost = ConfigManager.getString("rabbitmq.vhost"),
                 ssl = ConfigManager.getBoolean("rabbitmq.ssl"),
                 exchangeName = ConfigManager.getString("rabbitmq.exchange.name"),
-                routingHandlers =
-                    mapOf(ConfigManager.getString("notification.routing.key") to RoutingType.NOTIFICATION),
+                routingHandlers = handlers,
             )
+        }
     }
 }
