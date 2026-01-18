@@ -143,9 +143,15 @@ class RabbitMQConsumer(
         targetUserIds: List<String>,
     ) {
         val eventType =
-            event.getEventType() ?: run {
-                logger.warn("Unknown event type: ${event.eventType}")
+            event.eventTypeEnum ?: run {
+                logger.warn("Message unknown event type: ${event.eventType}")
                 return
+            }
+
+        val domain =
+            event.domain ?: run {
+                logger.warn("Message event missing domain: ${event.domain}")
+                RealtimeDomain.NOTIFICATION
             }
 
         when (eventType) {
@@ -156,7 +162,7 @@ class RabbitMQConsumer(
                 event.payload?.let { payload ->
                     try {
                         val messagePayload = json.decodeFromJsonElement<MessageEventPayload>(payload)
-                        connectionManager.sendToUsers(targetUserIds, eventType, messagePayload)
+                        connectionManager.sendToUsers(targetUserIds, domain, eventType, messagePayload)
                         logger.info("Sent ${event.eventType} to ${targetUserIds.size} users")
                     } catch (e: Exception) {
                         logger.error("Error parsing MessageEventPayload: ${e.message}", e)
@@ -168,7 +174,7 @@ class RabbitMQConsumer(
                 event.payload?.let { payload ->
                     try {
                         val typingPayload = json.decodeFromJsonElement<TypingIndicatorPayload>(payload)
-                        connectionManager.sendToUsers(targetUserIds, eventType, typingPayload)
+                        connectionManager.sendToUsers(targetUserIds, domain, eventType, typingPayload)
                         logger.debug("Sent typing indicator to ${targetUserIds.size} users")
                     } catch (e: Exception) {
                         logger.error("Error parsing TypingIndicatorPayload: ${e.message}", e)
@@ -189,12 +195,23 @@ class RabbitMQConsumer(
         event: RealtimeEvent,
         targetUserIds: List<String>,
     ) {
-        val eventType = event.getEventType() ?: EventTypes.NEW_NOTIFICATION
+        val eventType =
+            event.eventTypeEnum ?: run {
+                logger.warn("Unknown notification event type: ${event.eventType}, defaulting to NEW_NOTIFICATION")
+                return
+            }
+
+        val domain =
+            event.domain ?: run {
+                logger.warn("Notification event missing domain: ${event.domain}")
+                RealtimeDomain.NOTIFICATION
+                return
+            }
 
         event.payload?.let { payload ->
             try {
                 val notificationPayload = json.decodeFromJsonElement<NotificationEventPayload>(payload)
-                connectionManager.sendToUsers(targetUserIds, eventType, notificationPayload)
+                connectionManager.sendToUsers(targetUserIds, domain, eventType, notificationPayload)
                 logger.info("Sent notification to ${targetUserIds.size} users")
             } catch (e: Exception) {
                 logger.error("Error parsing NotificationEventPayload: ${e.message}", e)
@@ -211,15 +228,22 @@ class RabbitMQConsumer(
         targetUserIds: List<String>,
     ) {
         val eventType =
-            event.getEventType() ?: run {
+            event.eventTypeEnum ?: run {
                 logger.warn("Unknown system event type: ${event.eventType}")
+                return
+            }
+
+        val domain =
+            event.domain ?: run {
+                logger.warn("System event missing domain: ${event.domain}")
+                RealtimeDomain.SYSTEM
                 return
             }
 
         event.payload?.let { payload ->
             // Wrap raw payload in SystemEventPayload for consistent handling on client side
             val systemPayload = SystemEventPayload(data = payload)
-            connectionManager.sendToUsers(targetUserIds, eventType, systemPayload)
+            connectionManager.sendToUsers(targetUserIds, domain, eventType, systemPayload)
             logger.info("Sent system event to ${targetUserIds.size} users")
         }
     }

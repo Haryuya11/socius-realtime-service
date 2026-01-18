@@ -1,5 +1,9 @@
 package com.uit.config
 
+import com.azure.core.exception.AzureException
+import com.azure.core.exception.HttpResponseException
+import com.azure.core.exception.ResourceNotFoundException
+import com.azure.identity.CredentialUnavailableException
 import com.azure.identity.DefaultAzureCredentialBuilder
 import com.azure.security.keyvault.secrets.SecretClientBuilder
 import com.uit.utils.logger
@@ -88,13 +92,19 @@ object ConfigManager {
                     val configKey = secretName.lowercase().replace("-", ".")
                     config[configKey] = secretValue
                     logger.debug("Loaded secret: $secretName")
-                } catch (e: Exception) {
+                } catch (_: ResourceNotFoundException) {
+                    logger.debug("Secret not found in Key Vault: $secretName")
+                } catch (e: HttpResponseException) {
                     logger.warn("Failed to load secret $secretName: ${e.message}")
                 }
             }
 
             logger.info("Successfully loaded secrets from Azure Key Vault")
-        } catch (e: Exception) {
+        } catch (e: CredentialUnavailableException) {
+            logger.error("Azure credentials unavailable for Key Vault access: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            logger.error("Invalid Key Vault endpoint: ${e.message}")
+        } catch (e: AzureException) {
             logger.error("Failed to connect to Azure Key Vault", e)
         }
     }

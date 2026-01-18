@@ -33,5 +33,6 @@ data class RealtimeEvent(
      * Gets the EventTypes enum from the eventType string.
      * @return The matching EventTypes or null if not found.
      */
-    fun getEventType(): EventTypes? = eventType?.let { EventTypes.fromCode(it) }
+    val eventTypeEnum: EventTypes?
+        get() = eventType?.let(EventTypes::fromCode)
 }

@@ -9,7 +9,6 @@ import kotlinx.serialization.json.JsonElement
  */
 @Serializable
 data class MessageDto(
-    val id: Long? = null,
     val messageId: String? = null,
     val conversationId: String? = null,
     val senderId: String? = null,

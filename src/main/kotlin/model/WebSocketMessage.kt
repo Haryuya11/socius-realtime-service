@@ -1,6 +1,7 @@
 package com.uit.model
 
 import com.uit.enums.EventTypes
+import com.uit.enums.RealtimeDomain
 import kotlinx.serialization.Serializable
 
 /**
@@ -8,6 +9,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class WebSocketMessage<T>(
+    val domain: RealtimeDomain,
     val type: EventTypes,
     val data: T,
 )

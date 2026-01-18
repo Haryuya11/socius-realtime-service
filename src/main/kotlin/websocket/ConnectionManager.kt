@@ -1,6 +1,7 @@
 package com.uit.websocket
 
 import com.uit.enums.EventTypes
+import com.uit.enums.RealtimeDomain
 import com.uit.model.WebSocketMessage
 import com.uit.utils.logger
 import io.ktor.websocket.DefaultWebSocketSession
@@ -42,16 +43,18 @@ class ConnectionManager {
     /**
      * Sends a typed message to a specific user via WebSocket.
      * @param clientId The unique identifier for the client.
+     * @param domain The domain of the event being sent.
      * @param type The type of event being sent.
      * @param data The data payload of the message.
      */
     suspend inline fun <reified T> sendToUser(
         clientId: String,
+        domain: RealtimeDomain,
         type: EventTypes,
         data: T,
     ) {
         try {
-            val message = WebSocketMessage(type, data)
+            val message = WebSocketMessage(domain, type, data)
             val json = Json.encodeToString(message)
             sendRawMessage(clientId, json)
         } catch (e: Exception) {
@@ -62,19 +65,21 @@ class ConnectionManager {
     /**
      * Sends a typed message to multiple users via WebSocket.
      * @param clientIds The list of unique identifiers for the clients.
+     * @param domain The domain of the event being sent.
      * @param type The type of event being sent.
      * @param data The data payload of the message.
      */
     suspend inline fun <reified T> sendToUsers(
         clientIds: List<String>,
+        domain: RealtimeDomain,
         type: EventTypes,
         data: T,
     ) {
         try {
-            val message = WebSocketMessage(type, data)
+            val message = WebSocketMessage(domain, type, data)
             val json = Json.encodeToString(message)
             clientIds.forEach { clientId ->
-                if (checkConnected(clientId)) {
+                if (isConnected(clientId)) {
                     sendRawMessage(clientId, json)
                 }
             }
@@ -96,7 +101,7 @@ class ConnectionManager {
      * @return True if the client is connected, false otherwise.
      */
     @PublishedApi
-    internal fun checkConnected(clientId: String): Boolean = connections.containsKey(clientId)
+    internal fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
 
     /**
      * Sends a raw JSON message to a specific user via WebSocket.
@@ -135,12 +140,6 @@ class ConnectionManager {
     ) {
         logger.error("Error serializing message for $clientId", e)
     }
-
-    /** Checks if a client is currently connected.
-     * @param clientId The unique identifier for the client.
-     * @return True if the client is connected, false otherwise.
-     */
-    fun isConnected(clientId: String): Boolean = connections.containsKey(clientId)
 
     /**
      * Checks if any of the given clients are currently connected.
