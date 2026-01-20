@@ -14,6 +14,8 @@ data class NotificationEventPayload(
     val title: String? = null,
     /** The notification content */
     val content: String? = null,
+    /** Additional parameters for the notification */
+    val parameters: Map<String, String>? = null,
     /** The redirect URL for the notification */
     val redirectUrl: String? = null,
 )
