@@ -12,6 +12,7 @@ import com.uit.enums.RealtimeDomain
 import com.uit.enums.RoutingType
 import com.uit.model.MessageEventPayload
 import com.uit.model.NotificationEventPayload
+import com.uit.model.ReactionEventPayload
 import com.uit.model.RealtimeEvent
 import com.uit.model.SystemEventPayload
 import com.uit.model.TypingIndicatorPayload
@@ -178,6 +179,20 @@ class RabbitMQConsumer(
                         logger.debug("Sent typing indicator to ${targetUserIds.size} users")
                     } catch (e: Exception) {
                         logger.error("Error parsing TypingIndicatorPayload: ${e.message}", e)
+                    }
+                }
+            }
+
+            EventTypes.REACTION_ADDED,
+            EventTypes.REACTION_REMOVED,
+            -> {
+                event.payload?.let { payload ->
+                    try {
+                        val reactionPayload = json.decodeFromJsonElement<ReactionEventPayload>(payload)
+                        connectionManager.sendToUsers(targetUserIds, domain, eventType, reactionPayload)
+                        logger.info("Sent ${event.eventType} to ${targetUserIds.size} users")
+                    } catch (e: Exception) {
+                        logger.error("Error parsing ReactionEventPayload: ${e.message}", e)
                     }
                 }
             }
