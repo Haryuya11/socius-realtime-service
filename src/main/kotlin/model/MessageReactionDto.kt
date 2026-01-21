@@ -13,7 +13,7 @@ data class MessageReactionDto(
     /** The employee ID who added the reaction */
     val employeeId: String? = null,
     /** The reaction type (emoji code) */
-    val reactionType: String? = null,
+    val reaction: String? = null,
     /** Timestamp when the reaction was created */
     val createdAt: String? = null,
 )
