@@ -28,6 +28,12 @@ enum class EventTypes(
 
     /** Legacy chat type for backwards compatibility */
     CHAT("CHAT", "Legacy chat event"),
+
+    /** Reaction added event */
+    REACTION_ADDED("REACTION_ADDED", "Reaction added event"),
+
+    /** Reaction removed event */
+    REACTION_REMOVED("REACTION_REMOVED", "Reaction removed event"),
     ;
 
     companion object {
