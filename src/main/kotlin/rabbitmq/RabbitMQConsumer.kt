@@ -137,7 +137,8 @@ class RabbitMQConsumer(
     }
 
     /**
-     * Handles MESSAGE domain events (NEW_MESSAGE, MESSAGE_UPDATED, MESSAGE_DELETED, TYPING_INDICATOR).
+     * Handles MESSAGE domain events (NEW_MESSAGE, MESSAGE_UPDATED, MESSAGE_DELETED, TYPING_INDICATOR,
+     * REACTION_ADDED, REACTION_REMOVED).
      */
     private suspend fun handleMessageDomainEvent(
         event: RealtimeEvent,
